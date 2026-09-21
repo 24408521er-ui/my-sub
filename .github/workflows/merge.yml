@@ -1,0 +1,43 @@
+name: merge-subs
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build combined sub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          REPO=mahsanet/MahsaFreeConfig
+          RAW=https://raw.githubusercontent.com/$REPO/main
+          : > all.txt
+          for dir in mci mtn; do
+            files=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$REPO/contents/$dir" \
+              | jq -r '.[].name' | grep -E '^sub_.*\.txt$' || true)
+            for f in $files; do
+              curl -fsSL "$RAW/$dir/$f" | base64 -d >> all.txt 2>/dev/null || true
+              echo >> all.txt
+            done
+          done
+          grep -v '^$' all.txt | sort -u | base64 -w0 > sub.txt
+          rm all.txt
+          echo "configs: $(base64 -d sub.txt | wc -l)"
+
+      - name: Commit
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add sub.txt
+          git diff --cached --quiet || git commit -m "update"
+          git push
